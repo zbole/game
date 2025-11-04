@@ -1,8 +1,9 @@
 body, html {
     margin: 0;
     padding: 0;
+    height: 100%;
     overflow: hidden;
-    background: #808080;
+    background-color: #808080;
 }
 
 #overlay {
@@ -10,10 +11,11 @@ body, html {
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
-    color: #fff;
-    font-size: 2em;
+    font-size: 24px;
+    color: white;
     cursor: pointer;
-    z-index: 100;
+    user-select: none;
+    z-index: 1;
 }
 
 #crosshair {
@@ -22,7 +24,9 @@ body, html {
     left: 50%;
     transform: translate(-50%, -50%);
     font-size: 24px;
-    color: #fff;
+    color: white;
+    display: none;
     pointer-events: none;
-    z-index: 99;
+    user-select: none;
+    z-index: 2;
 }
