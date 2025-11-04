@@ -1,5 +1,8 @@
 let camera, scene, renderer;
+let yawObject, pitchObject;
 const objects = [];
+const targetVelocities = [];
+const targetRotationSpeeds = [];
 let raycaster;
 let moveForward = false;
 let moveBackward = false;
@@ -10,14 +13,12 @@ const direction = new THREE.Vector3();
 let prevTime = performance.now();
 let canJump = false;
 let isLocked = false;
-let yawObject, pitchObject;
 let score = 0;
 let scoreboard;
-const targetVelocities = [];
 const worldSize = 800;
 
 function init() {
-    camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 1, 1000);
+    camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 1, 2000);
     pitchObject = new THREE.Object3D();
     pitchObject.add(camera);
     yawObject = new THREE.Object3D();
@@ -27,13 +28,14 @@ function init() {
     scene = new THREE.Scene();
     scene.background = new THREE.Color(0x808080);
 
-    // Light
-    const light = new THREE.DirectionalLight(0xffffff, 0.5);
-    light.position.set(1, 1, 1).normalize();
+    // Lighting
+    scene.add(new THREE.AmbientLight(0x404040));
+    const light = new THREE.DirectionalLight(0xffffff, 0.8);
+    light.position.set(5, 10, 7);
     scene.add(light);
 
     // Floor
-    const floorGeometry = new THREE.PlaneGeometry(worldSize, worldSize, 10, 10);
+    const floorGeometry = new THREE.PlaneGeometry(worldSize, worldSize);
     floorGeometry.rotateX(-Math.PI / 2);
     const floorMaterial = new THREE.MeshPhongMaterial({ color: 0x999999 });
     const floor = new THREE.Mesh(floorGeometry, floorMaterial);
@@ -42,8 +44,8 @@ function init() {
 
     // Boundary walls
     const wallMaterial = new THREE.MeshLambertMaterial({ color: 0x444444 });
-    const wallThickness = 10;
     const wallHeight = 50;
+    const wallThickness = 10;
     const half = worldSize / 2;
     const walls = [
         new THREE.Mesh(new THREE.BoxGeometry(worldSize, wallHeight, wallThickness), wallMaterial),
@@ -69,9 +71,9 @@ function init() {
         const tree = new THREE.Object3D();
         tree.add(trunk);
         tree.add(crown);
-        const x = (Math.random() - 0.5) * (worldSize - 100);
-        const z = (Math.random() - 0.5) * (worldSize - 100);
-        tree.position.set(x, 4, z);
+        const tx = (Math.random() - 0.5) * (worldSize - 100);
+        const tz = (Math.random() - 0.5) * (worldSize - 100);
+        tree.position.set(tx, 4, tz);
         scene.add(tree);
     }
 
@@ -117,17 +119,42 @@ function init() {
     scene.add(yawObject);
 }
 
+function randomColor() {
+    return new THREE.Color(Math.random(), Math.random(), Math.random());
+}
+
 function spawnTarget() {
-    const boxGeometry = new THREE.BoxGeometry(20, 20, 20);
-    const material = new THREE.MeshBasicMaterial({ color: Math.random() * 0xffffff });
-    const cube = new THREE.Mesh(boxGeometry, material);
-    const x = (Math.random() - 0.5) * (worldSize - 40);
-    const z = (Math.random() - 0.5) * (worldSize - 40);
-    cube.position.set(x, 10, z);
-    scene.add(cube);
-    objects.push(cube);
-    const v = new THREE.Vector3((Math.random() - 0.5) * 100, 0, (Math.random() - 0.5) * 100);
-    targetVelocities.push(v);
+    const types = ['box', 'sphere', 'cone', 'torus', 'cylinder'];
+    const type = types[Math.floor(Math.random() * types.length)];
+    let geometry;
+    let size = 10 + Math.random() * 20;
+    switch (type) {
+        case 'box':
+            geometry = new THREE.BoxGeometry(size, size, size);
+            break;
+        case 'sphere':
+            geometry = new THREE.SphereGeometry(size / 2, 16, 16);
+            break;
+        case 'cone':
+            geometry = new THREE.ConeGeometry(size / 2, size, 16);
+            break;
+        case 'torus':
+            geometry = new THREE.TorusGeometry(size / 2, size / 4, 8, 16);
+            break;
+        case 'cylinder':
+            geometry = new THREE.CylinderGeometry(size / 4, size / 4, size, 16);
+            break;
+    }
+    const material = new THREE.MeshPhongMaterial({ color: randomColor() });
+    const mesh = new THREE.Mesh(geometry, material);
+    const halfArea = worldSize / 2 - 50;
+    mesh.position.set((Math.random() * 2 - 1) * halfArea, size / 2 + 1, (Math.random() * 2 - 1) * halfArea);
+    scene.add(mesh);
+    objects.push(mesh);
+    const vel = new THREE.Vector3((Math.random() * 2 - 1) * 50, 0, (Math.random() * 2 - 1) * 50);
+    targetVelocities.push(vel);
+    const rot = new THREE.Vector3((Math.random() * 2 - 1) * 1.0, (Math.random() * 2 - 1) * 1.0, (Math.random() * 2 - 1) * 1.0);
+    targetRotationSpeeds.push(rot);
 }
 
 function updateScoreboard() {
@@ -195,18 +222,41 @@ function onKeyUp(event) {
 
 function onClick() {
     if (!isLocked) return;
-    const directionVector = new THREE.Vector3();
-    camera.getWorldDirection(directionVector);
-    raycaster.set(camera.position, directionVector);
+    const dir = new THREE.Vector3();
+    camera.getWorldDirection(dir);
+    raycaster.set(camera.position, dir);
     const intersects = raycaster.intersectObjects(objects, false);
     if (intersects.length > 0) {
-        const hit = intersects[0].object;
-        scene.remove(hit);
-        const index = objects.indexOf(hit);
-        if (index > -1) {
-            objects.splice(index, 1);
-            targetVelocities.splice(index, 1);
+        removeTarget(intersects[0].object);
+        return;
+    }
+    // near miss detection
+    let bestIndex = -1;
+    let bestAngle = 0.2;
+    const camDir = dir.clone();
+    for (let i = 0; i < objects.length; i++) {
+        const obj = objects[i];
+        const vecToObj = obj.position.clone().sub(camera.position);
+        const distance = vecToObj.length();
+        const angle = camDir.angleTo(vecToObj);
+        const maxDist = 300;
+        if (distance < maxDist && angle < bestAngle) {
+            bestAngle = angle;
+            bestIndex = i;
         }
+    }
+    if (bestIndex >= 0) {
+        removeTarget(objects[bestIndex]);
+    }
+}
+
+function removeTarget(obj) {
+    const index = objects.indexOf(obj);
+    if (index > -1) {
+        scene.remove(obj);
+        objects.splice(index, 1);
+        targetVelocities.splice(index, 1);
+        targetRotationSpeeds.splice(index, 1);
         score++;
         updateScoreboard();
         spawnTarget();
@@ -233,7 +283,6 @@ function animate() {
         direction.x = Number(moveRight) - Number(moveLeft);
         direction.normalize();
 
-        // Invert sign for z to correct forward/back orientation
         if (moveForward || moveBackward) velocity.z += direction.z * 400.0 * delta;
         if (moveLeft || moveRight) velocity.x -= direction.x * 400.0 * delta;
 
@@ -247,17 +296,22 @@ function animate() {
             canJump = true;
         }
 
-        // Update targets movement
+        // Move and rotate targets
         for (let i = 0; i < objects.length; i++) {
-            const cube = objects[i];
+            const obj = objects[i];
             const v = targetVelocities[i];
-            cube.position.addScaledVector(v, delta);
-            if (cube.position.x < -worldSize / 2 + 10 || cube.position.x > worldSize / 2 - 10) {
-                v.x = -v.x;
-            }
-            if (cube.position.z < -worldSize / 2 + 10 || cube.position.z > worldSize / 2 - 10) {
-                v.z = -v.z;
-            }
+            obj.position.addScaledVector(v, delta);
+          if (obj.position.x < -worldSize / 2 + 20 || obj.position.x > worldSize / 2 - 20) {
+            v.x = -v.x;
+        }
+        if (obj.position.z < -worldSize / 2 + 20 || obj.position.z > worldSize / 2 - 20) {
+            v.z = -v.z;
+        }            }
+       
+            const rot = targetRotationSpeeds[i];
+            obj.rotation.x += rot.x * delta;
+            obj.rotation.y += rot.y * delta;
+            obj.rotation.z += rot.z * delta;
         }
 
         prevTime = time;
