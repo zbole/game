@@ -4,6 +4,8 @@ let yawObject, pitchObject;
 const objects = [];
 const targetVelocities = [];
 const targetRotationSpeeds = [];
+// Array to store active projectiles (small balls) fired by the player
+const projectiles = [];
 let raycaster;
 let moveForward = false;
 let moveBackward = false;
@@ -265,36 +267,22 @@ function onKeyUp(event) {
 
 function onClick() {
     if (!isLocked) return;
-    // Use raycaster to check for direct hit
-    const dir = new THREE.Vector3();
-    camera.getWorldDirection(dir);
-    raycaster.set(camera.position, dir);
-    const intersects = raycaster.intersectObjects(objects, false);
-    if (intersects.length > 0) {
-        removeTarget(intersects[0].object);
-        return;
-    }
-    // Near-miss detection based on angular difference and distance
-    let bestIndex = -1;
-    let bestAngle = 0.25; // ~14 degrees
-    const camDir = dir.clone();
-    for (let i = 0; i < objects.length; i++) {
-        const obj = objects[i];
-        const vecToObj = obj.position.clone().sub(camera.position);
-        const distance = vecToObj.length();
-        if (distance > 350) continue;
-        const angle = camDir.angleTo(vecToObj);
-        // use object's radius approximation
-        const radius = obj.geometry.boundingSphere ? obj.geometry.boundingSphere.radius : 10;
-        const angularRadius = Math.atan(radius / distance);
-        if (angle < bestAngle + angularRadius) {
-            bestAngle = angle;
-            bestIndex = i;
-        }
-    }
-    if (bestIndex >= 0) {
-        removeTarget(objects[bestIndex]);
-    }
+    // Shoot a small projectile (ball) in the direction the camera is facing
+    const directionVec = new THREE.Vector3();
+    camera.getWorldDirection(directionVec);
+    // Create a sphere to represent the projectile
+    const projGeom = new THREE.SphereGeometry(2, 8, 8);
+    const projMat = new THREE.MeshPhongMaterial({ color: 0xffff00 });
+    const projectile = new THREE.Mesh(projGeom, projMat);
+    // Position the projectile slightly in front of the camera
+    const startPos = camera.position.clone();
+    const offset = directionVec.clone().multiplyScalar(10);
+    projectile.position.copy(startPos).add(offset);
+    scene.add(projectile);
+    // Set the velocity for the projectile
+    const speed = 600;
+    const velocityVec = directionVec.clone().normalize().multiplyScalar(speed);
+    projectiles.push({ mesh: projectile, velocity: velocityVec });
 }
 
 function removeTarget(obj) {
@@ -360,6 +348,33 @@ function animate() {
             obj.rotation.z += rot.z * delta;
             // Subtle color shift over time
             obj.material.color.offsetHSL(0.001 * delta, 0.0, 0.0);
+        }
+
+        // Update projectiles: move and check collisions
+        for (let i = projectiles.length - 1; i >= 0; i--) {
+            const proj = projectiles[i];
+            // Move projectile
+            proj.mesh.position.addScaledVector(proj.velocity, delta);
+            let hit = false;
+            // Check collision with targets
+            for (let j = objects.length - 1; j >= 0; j--) {
+                const obj = objects[j];
+                const objRadius = obj.geometry.boundingSphere ? obj.geometry.boundingSphere.radius : 10;
+                const projRadius = proj.mesh.geometry.boundingSphere ? proj.mesh.geometry.boundingSphere.radius : 2;
+                const dist = proj.mesh.position.distanceTo(obj.position);
+                if (dist < objRadius + projRadius) {
+                    removeTarget(obj);
+                    hit = true;
+                    break;
+                }
+            }
+            // Remove projectile if hit or out of bounds
+            const maxDist = worldSize;
+            if (hit || Math.abs(proj.mesh.position.x) > maxDist || Math.abs(proj.mesh.position.z) > maxDist ||
+                proj.mesh.position.y < 0 || proj.mesh.position.length() > maxDist * 1.5) {
+                scene.remove(proj.mesh);
+                projectiles.splice(i, 1);
+            }
         }
         prevTime = time;
     }
