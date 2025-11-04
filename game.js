@@ -1,4 +1,4 @@
-let camera, scene, renderer, controls;
+let camera, scene, renderer;
 const objects = [];
 let raycaster;
 let moveForward = false;
@@ -10,8 +10,19 @@ const velocity = new THREE.Vector3();
 const direction = new THREE.Vector3();
 let prevTime = performance.now();
 
+let isLocked = false;
+let yawObject, pitchObject;
+
 function init() {
     camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 1, 1000);
+
+    // Create yaw and pitch objects for manual pointer lock control
+    pitchObject = new THREE.Object3D();
+    pitchObject.add(camera);
+    yawObject = new THREE.Object3D();
+    yawObject.position.y = 10;
+    yawObject.add(pitchObject);
+
     scene = new THREE.Scene();
     scene.background = new THREE.Color(0x808080);
 
@@ -19,27 +30,7 @@ function init() {
     light.position.set(1, 1, 1).normalize();
     scene.add(light);
 
-    controls = new THREE.PointerLockControls(camera, document.body);
-
-    const overlay = document.getElementById('overlay');
-    const crosshair = document.getElementById('crosshair');
-
-    // Click overlay to lock the pointer and start the game
-    overlay.addEventListener('click', () => {
-        controls.lock();
-    });
-
-    controls.addEventListener('lock', () => {
-        overlay.style.display = 'none';
-        crosshair.style.display = 'block';
-    });
-
-    controls.addEventListener('unlock', () => {
-        overlay.style.display = '';
-        crosshair.style.display = 'none';
-    });
-
-    scene.add(controls.getObject());
+    scene.add(yawObject);
 
     // Create the floor
     const floorGeometry = new THREE.PlaneGeometry(2000, 2000, 100, 100);
@@ -63,17 +54,55 @@ function init() {
         objects.push(cube);
     }
 
-    // Listen for movement and click events
-    document.addEventListener('keydown', onKeyDown);
-    document.addEventListener('keyup', onKeyUp);
-    document.addEventListener('click', onClick);
-
     // Set up renderer
     renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
     document.body.appendChild(renderer.domElement);
 
+    // Pointer lock overlay and crosshair elements
+    const overlay = document.getElementById('overlay');
+    const crosshair = document.getElementById('crosshair');
+
+    // Request pointer lock on click
+    overlay.addEventListener('click', () => {
+        renderer.domElement.requestPointerLock();
+    });
+
+    // Pointer lock change events
+    document.addEventListener('pointerlockchange', () => {
+        if (document.pointerLockElement === renderer.domElement) {
+            isLocked = true;
+            overlay.style.display = 'none';
+            crosshair.style.display = 'block';
+        } else {
+            isLocked = false;
+            overlay.style.display = '';
+            crosshair.style.display = 'none';
+        }
+    });
+
+    // Handle mouse movement to rotate camera
+    document.addEventListener('mousemove', onMouseMove);
+
+    // Listen for movement and click events
+    document.addEventListener('keydown', onKeyDown);
+    document.addEventListener('keyup', onKeyUp);
+    document.addEventListener('click', onClick);
+
     window.addEventListener('resize', onWindowResize);
+}
+
+function onMouseMove(event) {
+    if (!isLocked) return;
+
+    const movementX = event.movementX || event.mozMovementX || event.webkitMovementX || 0;
+    const movementY = event.movementY || event.mozMovementY || event.webkitMovementY || 0;
+
+    yawObject.rotation.y -= movementX * 0.002;
+    pitchObject.rotation.x -= movementY * 0.002;
+
+    // Clamp vertical look to avoid flipping
+    pitchObject.rotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, pitchObject.rotation.x));
 }
 
 function onKeyDown(event) {
@@ -125,7 +154,7 @@ function onKeyUp(event) {
 }
 
 function onClick() {
-    if (!controls.isLocked) return;
+    if (!isLocked) return;
 
     const directionVector = new THREE.Vector3();
     camera.getWorldDirection(directionVector);
@@ -147,7 +176,7 @@ function onWindowResize() {
 function animate() {
     requestAnimationFrame(animate);
 
-    if (controls.isLocked) {
+    if (isLocked) {
         const time = performance.now();
         const delta = (time - prevTime) / 1000;
 
@@ -165,15 +194,15 @@ function animate() {
         if (moveForward || moveBackward) velocity.z -= direction.z * 400.0 * delta;
         if (moveLeft || moveRight) velocity.x -= direction.x * 400.0 * delta;
 
-        // Move the camera
-        controls.moveRight(-velocity.x * delta);
-        controls.moveForward(-velocity.z * delta);
+        // Move the player (yawObject)
+        yawObject.translateX(-velocity.x * delta);
+        yawObject.translateZ(-velocity.z * delta);
 
         // Apply vertical movement
-        controls.getObject().position.y += velocity.y * delta;
-        if (controls.getObject().position.y < 10) {
+        yawObject.position.y += velocity.y * delta;
+        if (yawObject.position.y < 10) {
             velocity.y = 0;
-            controls.getObject().position.y = 10;
+            yawObject.position.y = 10;
             canJump = true;
         }
 
