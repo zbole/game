@@ -10,6 +10,14 @@ const powerUps = [];
 const powerUpVelocities = [];
 // Array to store active projectiles (small balls) fired by the player
 const projectiles = [];
+// Arrays for special star collectibles and their velocities. Stars grant bonus points and temporarily increase projectile speed.
+const stars = [];
+const starVelocities = [];
+// Multiplier for projectile speed and the number of boosted shots remaining. When shotsBoosted > 0
+// each new projectile's speed will be multiplied by projectileSpeedMultiplier and
+// shotsBoosted will decrement after each shot.
+let projectileSpeedMultiplier = 1;
+let shotsBoosted = 0;
 let raycaster;
 let moveForward = false;
 let moveBackward = false;
@@ -96,6 +104,11 @@ function init() {
     // Spawn a few power‑ups at the start
     for (let i = 0; i < 3; i++) {
         spawnPowerUp();
+    }
+
+    // Spawn a few stars at the start
+    for (let i = 0; i < 2; i++) {
+        spawnStar();
     }
 
     // Renderer
@@ -233,6 +246,34 @@ function spawnPowerUp() {
     powerUpVelocities.push(v);
 }
 
+// Spawn a star collectible in the arena. Shooting a star grants bonus points and temporarily increases projectile speed.
+function spawnStar() {
+    const size = 6 + Math.random() * 4;
+    // Use an octahedron geometry for a distinctive star-like shape
+    const geometry = new THREE.OctahedronGeometry(size);
+    const material = new THREE.MeshPhongMaterial({
+        color: 0xffff00,
+        emissive: 0xffff00,
+        shininess: 80,
+    });
+    const mesh = new THREE.Mesh(geometry, material);
+    const halfArea = worldSize / 2 - 50;
+    mesh.position.set(
+        (Math.random() * 2 - 1) * halfArea,
+        size / 2 + 2,
+        (Math.random() * 2 - 1) * halfArea
+    );
+    scene.add(mesh);
+    stars.push(mesh);
+    // Random velocity for star movement
+    const vel = new THREE.Vector3(
+        (Math.random() * 2 - 1) * 40,
+        0,
+        (Math.random() * 2 - 1) * 40
+    );
+    starVelocities.push(vel);
+}
+
 function updateScoreboard() {
     if (scoreboard) {
         scoreboard.textContent = `得分: ${score}`;
@@ -307,14 +348,23 @@ function onClick() {
     const projectile = new THREE.Mesh(projGeom, projMat);
     // Position the projectile slightly in front of the player's current world position
     const startPos = new THREE.Vector3();
-    camera.getWorldPosition(startPos);
+    // Ensure the player's world matrix is up to date and use the player's world position (yawObject)
+    yawObject.updateMatrixWorld();
+    yawObject.getWorldPosition(startPos);
     const offset = directionVec.clone().multiplyScalar(10);
     projectile.position.copy(startPos).add(offset);
     scene.add(projectile);
-    // Set the velocity for the projectile
-    const speed = 600;
+    // Determine projectile speed with any active multipliers
+    const speed = 600 * projectileSpeedMultiplier;
     const velocityVec = directionVec.clone().normalize().multiplyScalar(speed);
     projectiles.push({ mesh: projectile, velocity: velocityVec });
+    // If the player has boosted shots remaining, decrement and reset multiplier when exhausted
+    if (shotsBoosted > 0) {
+        shotsBoosted--;
+        if (shotsBoosted === 0) {
+            projectileSpeedMultiplier = 1;
+        }
+    }
 }
 
 function removeTarget(obj) {
@@ -396,6 +446,21 @@ function animate() {
             // Rotate power‑ups for visual interest
             pu.rotation.y += 2.0 * delta;
         }
+        // Update stars: move, bounce, and rotate
+        for (let i = 0; i < stars.length; i++) {
+            const st = stars[i];
+            const vel = starVelocities[i];
+            st.position.addScaledVector(vel, delta);
+            if (st.position.x < -worldSize / 2 + 20 || st.position.x > worldSize / 2 - 20) {
+                vel.x = -vel.x;
+            }
+            if (st.position.z < -worldSize / 2 + 20 || st.position.z > worldSize / 2 - 20) {
+                vel.z = -vel.z;
+            }
+            // Rotate for a sparkling effect
+            st.rotation.x += 2.0 * delta;
+            st.rotation.y += 3.0 * delta;
+        }
         // Slowly shift the background hue for a more dynamic look
         if (scene.background && scene.background.isColor) {
             scene.background.offsetHSL(0.05 * delta, 0, 0);
@@ -436,6 +501,28 @@ function animate() {
                     // Spawn extra targets to keep the game lively
                     spawnTarget();
                     spawnTarget();
+                    hit = true;
+                    break;
+                }
+            }
+
+            // Check collision with stars
+            for (let s = stars.length - 1; s >= 0 && !hit; s--) {
+                const st = stars[s];
+                const sr = st.geometry.boundingSphere ? st.geometry.boundingSphere.radius : 5;
+                const distStar = proj.mesh.position.distanceTo(st.position);
+                if (distStar < sr + projRadius) {
+                    // Remove star and grant bonus points and speed boost
+                    scene.remove(st);
+                    stars.splice(s, 1);
+                    starVelocities.splice(s, 1);
+                    score += 10;
+                    updateScoreboard();
+                    // Apply projectile speed boost and set number of boosted shots
+                    projectileSpeedMultiplier = 2;
+                    shotsBoosted += 5;
+                    // Spawn a new star to keep the feature active
+                    spawnStar();
                     hit = true;
                     break;
                 }
