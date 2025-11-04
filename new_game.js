@@ -4,6 +4,10 @@ let yawObject, pitchObject;
 const objects = [];
 const targetVelocities = [];
 const targetRotationSpeeds = [];
+
+// Arrays for power-ups and their velocities. Power-ups provide bonus points and spawn extra targets when shot.
+const powerUps = [];
+const powerUpVelocities = [];
 // Array to store active projectiles (small balls) fired by the player
 const projectiles = [];
 let raycaster;
@@ -88,6 +92,10 @@ function init() {
     // Spawn initial targets
     for (let i = 0; i < 12; i++) {
         spawnTarget();
+    }
+    // Spawn a few power‑ups at the start
+    for (let i = 0; i < 3; i++) {
+        spawnPowerUp();
     }
 
     // Renderer
@@ -202,6 +210,29 @@ function spawnTarget() {
     targetRotationSpeeds.push(rotSpeed);
 }
 
+// Spawn a power‑up object that moves around the arena. Shooting a power‑up grants bonus points and spawns extra targets.
+function spawnPowerUp() {
+    const size = 6 + Math.random() * 4;
+    const geometry = new THREE.SphereGeometry(size, 16, 16);
+    const material = new THREE.MeshPhongMaterial({ color: 0xff00ff, shininess: 60 });
+    const mesh = new THREE.Mesh(geometry, material);
+    const halfArea = worldSize / 2 - 50;
+    mesh.position.set(
+        (Math.random() * 2 - 1) * halfArea,
+        size / 2 + 2,
+        (Math.random() * 2 - 1) * halfArea
+    );
+    scene.add(mesh);
+    powerUps.push(mesh);
+    // random velocity for power‑up movement
+    const v = new THREE.Vector3(
+        (Math.random() * 2 - 1) * 60,
+        0,
+        (Math.random() * 2 - 1) * 60
+    );
+    powerUpVelocities.push(v);
+}
+
 function updateScoreboard() {
     if (scoreboard) {
         scoreboard.textContent = `得分: ${score}`;
@@ -274,8 +305,9 @@ function onClick() {
     const projGeom = new THREE.SphereGeometry(2, 8, 8);
     const projMat = new THREE.MeshPhongMaterial({ color: 0xffff00 });
     const projectile = new THREE.Mesh(projGeom, projMat);
-    // Position the projectile slightly in front of the camera
-    const startPos = camera.position.clone();
+    // Position the projectile slightly in front of the player's current world position
+    const startPos = new THREE.Vector3();
+    camera.getWorldPosition(startPos);
     const offset = directionVec.clone().multiplyScalar(10);
     projectile.position.copy(startPos).add(offset);
     scene.add(projectile);
@@ -350,6 +382,25 @@ function animate() {
             obj.material.color.offsetHSL(0.001 * delta, 0.0, 0.0);
         }
 
+        // Update power‑ups: move around and bounce off boundaries
+        for (let i = 0; i < powerUps.length; i++) {
+            const pu = powerUps[i];
+            const vel = powerUpVelocities[i];
+            pu.position.addScaledVector(vel, delta);
+            if (pu.position.x < -worldSize / 2 + 20 || pu.position.x > worldSize / 2 - 20) {
+                vel.x = -vel.x;
+            }
+            if (pu.position.z < -worldSize / 2 + 20 || pu.position.z > worldSize / 2 - 20) {
+                vel.z = -vel.z;
+            }
+            // Rotate power‑ups for visual interest
+            pu.rotation.y += 2.0 * delta;
+        }
+        // Slowly shift the background hue for a more dynamic look
+        if (scene.background && scene.background.isColor) {
+            scene.background.offsetHSL(0.05 * delta, 0, 0);
+        }
+
         // Update projectiles: move and check collisions
         for (let i = projectiles.length - 1; i >= 0; i--) {
             const proj = projectiles[i];
@@ -364,6 +415,26 @@ function animate() {
                 const dist = proj.mesh.position.distanceTo(obj.position);
                 if (dist < objRadius + projRadius) {
                     removeTarget(obj);
+                    hit = true;
+                    break;
+                }
+            }
+
+            // Check collision with power‑ups
+            for (let k = powerUps.length - 1; k >= 0 && !hit; k--) {
+                const p = powerUps[k];
+                const pr = p.geometry.boundingSphere ? p.geometry.boundingSphere.radius : 5;
+                const distPU = proj.mesh.position.distanceTo(p.position);
+                if (distPU < projRadius + pr) {
+                    // Remove power‑up and apply bonus effects
+                    scene.remove(p);
+                    powerUps.splice(k, 1);
+                    powerUpVelocities.splice(k, 1);
+                    score += 5;
+                    updateScoreboard();
+                    // Spawn extra targets to keep the game lively
+                    spawnTarget();
+                    spawnTarget();
                     hit = true;
                     break;
                 }
