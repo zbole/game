@@ -404,6 +404,8 @@ function animate() {
         // Update projectiles: move and check collisions
         for (let i = projectiles.length - 1; i >= 0; i--) {
             const proj = projectiles[i];
+            // Determine projectile radius once per projectile
+            const projRadius = proj.mesh.geometry.boundingSphere ? proj.mesh.geometry.boundingSphere.radius : 2;
             // Move projectile
             proj.mesh.position.addScaledVector(proj.velocity, delta);
             let hit = false;
@@ -411,7 +413,6 @@ function animate() {
             for (let j = objects.length - 1; j >= 0; j--) {
                 const obj = objects[j];
                 const objRadius = obj.geometry.boundingSphere ? obj.geometry.boundingSphere.radius : 10;
-                const projRadius = proj.mesh.geometry.boundingSphere ? proj.mesh.geometry.boundingSphere.radius : 2;
                 const dist = proj.mesh.position.distanceTo(obj.position);
                 if (dist < objRadius + projRadius) {
                     removeTarget(obj);
