@@ -13,6 +13,10 @@ const projectiles = [];
 // Arrays for special star collectibles and their velocities. Stars grant bonus points and temporarily increase projectile speed.
 const stars = [];
 const starVelocities = [];
+// Arrays for mountains and clouds used to beautify the environment.
+const mountains = [];
+const clouds = [];
+const cloudVelocities = [];
 // Multiplier for projectile speed and the number of boosted shots remaining. When shotsBoosted > 0
 // each new projectile's speed will be multiplied by projectileSpeedMultiplier and
 // shotsBoosted will decrement after each shot.
@@ -44,6 +48,8 @@ function init() {
     // Scene and background
     scene = new THREE.Scene();
     scene.background = new THREE.Color(0x808080);
+    // Add light fog for atmosphere
+    scene.fog = new THREE.FogExp2(0xcccccc, 0.00025);
 
     // Lighting
     scene.add(new THREE.AmbientLight(0x505050));
@@ -109,6 +115,15 @@ function init() {
     // Spawn a few stars at the start
     for (let i = 0; i < 2; i++) {
         spawnStar();
+    }
+
+    // Spawn decorative mountains around the arena
+    for (let i = 0; i < 6; i++) {
+        spawnMountain();
+    }
+    // Spawn some clouds high above the arena
+    for (let i = 0; i < 4; i++) {
+        spawnCloud();
     }
 
     // Renderer
@@ -272,6 +287,62 @@ function spawnStar() {
         (Math.random() * 2 - 1) * 40
     );
     starVelocities.push(vel);
+}
+
+// Spawn a mountain outside the arena to create background scenery.
+function spawnMountain() {
+    // Randomly choose geometry type for variety
+    const types = ['cone', 'cylinder', 'icosahedron'];
+    const type = types[Math.floor(Math.random() * types.length)];
+    let geometry;
+    const height = 80 + Math.random() * 80;
+    const radius = 40 + Math.random() * 40;
+    switch (type) {
+        case 'cone':
+            geometry = new THREE.ConeGeometry(radius, height, 16);
+            break;
+        case 'cylinder':
+            geometry = new THREE.CylinderGeometry(radius, radius * 0.6, height, 16);
+            break;
+        case 'icosahedron':
+            geometry = new THREE.IcosahedronGeometry(radius, 1);
+            break;
+    }
+    const material = new THREE.MeshLambertMaterial({ color: 0x555533 });
+    const mesh = new THREE.Mesh(geometry, material);
+    // Position mountain just outside the arena boundaries
+    const side = Math.random() < 0.5 ? -1 : 1;
+    if (Math.random() < 0.5) {
+        // Place along X side
+        mesh.position.set(side * (worldSize / 2 + radius), height / 2 - 10, (Math.random() * 2 - 1) * (worldSize + 200));
+    } else {
+        // Place along Z side
+        mesh.position.set((Math.random() * 2 - 1) * (worldSize + 200), height / 2 - 10, side * (worldSize / 2 + radius));
+    }
+    scene.add(mesh);
+    mountains.push(mesh);
+}
+
+// Spawn a cloud composed of multiple spheres, moving slowly across the sky.
+function spawnCloud() {
+    const cloud = new THREE.Group();
+    const sphereCount = 3 + Math.floor(Math.random() * 4);
+    for (let i = 0; i < sphereCount; i++) {
+        const size = 8 + Math.random() * 10;
+        const geom = new THREE.SphereGeometry(size, 8, 8);
+        const mat = new THREE.MeshPhongMaterial({ color: 0xffffff, opacity: 0.8, transparent: true });
+        const sphere = new THREE.Mesh(geom, mat);
+        sphere.position.set((Math.random() * 2 - 1) * 15, (Math.random() * 2 - 1) * 5, (Math.random() * 2 - 1) * 10);
+        cloud.add(sphere);
+    }
+    // Position cloud high above the arena
+    const half = worldSize / 2;
+    cloud.position.set((Math.random() * 2 - 1) * half, 80 + Math.random() * 40, (Math.random() * 2 - 1) * half);
+    scene.add(cloud);
+    clouds.push(cloud);
+    // Assign a slow horizontal velocity
+    const vel = new THREE.Vector3((Math.random() * 2 - 1) * 10, 0, (Math.random() * 2 - 1) * 10);
+    cloudVelocities.push(vel);
 }
 
 function updateScoreboard() {
@@ -464,6 +535,26 @@ function animate() {
         // Slowly shift the background hue for a more dynamic look
         if (scene.background && scene.background.isColor) {
             scene.background.offsetHSL(0.05 * delta, 0, 0);
+        }
+
+        // Update clouds: move slowly across the sky and wrap around the world boundaries
+        for (let i = 0; i < clouds.length; i++) {
+            const cl = clouds[i];
+            const vel = cloudVelocities[i];
+            cl.position.addScaledVector(vel, delta);
+            const bound = worldSize / 2 + 200;
+            if (cl.position.x < -bound) {
+                cl.position.x = bound;
+            } else if (cl.position.x > bound) {
+                cl.position.x = -bound;
+            }
+            if (cl.position.z < -bound) {
+                cl.position.z = bound;
+            } else if (cl.position.z > bound) {
+                cl.position.z = -bound;
+            }
+            // Gentle rotation for dynamic look
+            cl.rotation.y += 0.1 * delta;
         }
 
         // Update projectiles: move and check collisions
