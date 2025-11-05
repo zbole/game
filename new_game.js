@@ -17,6 +17,19 @@ const starVelocities = [];
 const mountains = [];
 const clouds = [];
 const cloudVelocities = [];
+// Decorative props placed around the arena (rocks, crates, etc.)
+const decorations = [];
+// Objects for the player's gun; gun meshes will be attached to the camera so it moves with the player.
+let gun;
+let gunBarrel;
+let gunBody;
+// Zoom state and parameters. Right‑click toggles aiming down sights by changing the camera FOV.
+let isZoomed = false;
+const normalFov = 75;
+const zoomFov = 35;
+// Running multiplier (hold Shift to run) and bobbing timer for subtle weapon sway while moving.
+let runMultiplier = 1;
+let bobbingTime = 0;
 // Multiplier for projectile speed and the number of boosted shots remaining. When shotsBoosted > 0
 // each new projectile's speed will be multiplied by projectileSpeedMultiplier and
 // shotsBoosted will decrement after each shot.
@@ -126,6 +139,14 @@ function init() {
         spawnCloud();
     }
 
+    // Spawn decorative props such as rocks and crates
+    for (let i = 0; i < 8; i++) {
+        spawnDecoration();
+    }
+
+    // Create the player's gun model and attach it to the camera
+    createGun();
+
     // Renderer
     renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
@@ -159,6 +180,15 @@ function init() {
     document.addEventListener('keyup', onKeyUp);
     document.addEventListener('click', onClick);
     window.addEventListener('resize', onWindowResize);
+
+    // Prevent the default context menu from appearing on right click and toggle zoom instead.
+    document.addEventListener('contextmenu', (e) => e.preventDefault());
+    document.addEventListener('mousedown', (e) => {
+        // Right mouse button (button === 2) toggles aiming down sights
+        if (e.button === 2) {
+            toggleZoom();
+        }
+    });
 
     scene.add(yawObject);
 }
@@ -345,6 +375,68 @@ function spawnCloud() {
     cloudVelocities.push(vel);
 }
 
+// Create a simple first‑person gun model and attach it to the player's pitch object.  The gun is
+// built from basic shapes (a cylinder for the barrel and a box for the body) and positioned
+// relative to the camera so that it appears in the bottom right of the screen.  This adds
+// immersion to the FPS experience without requiring an external model file.
+function createGun() {
+    // Create a group for the gun so we can move it as a whole relative to the camera.
+    gun = new THREE.Group();
+    // Barrel of the gun: a horizontal cylinder that points forward along -Z when rotated on the X axis.
+    const barrelGeo = new THREE.CylinderGeometry(0.5, 0.5, 8, 8);
+    const barrelMat = new THREE.MeshPhongMaterial({ color: 0x333333 });
+    gunBarrel = new THREE.Mesh(barrelGeo, barrelMat);
+    // By default the cylinder's axis is Y; rotate about X so it points along Z.
+    gunBarrel.rotation.x = Math.PI / 2;
+    // Position the barrel relative to the gun group
+    gunBarrel.position.set(0.0, 0.0, -4.5);
+    // Body/stock of the gun: a rectangular prism slightly behind the barrel
+    const bodyGeo = new THREE.BoxGeometry(1.8, 1.2, 3.5);
+    const bodyMat = new THREE.MeshPhongMaterial({ color: 0x222222 });
+    gunBody = new THREE.Mesh(bodyGeo, bodyMat);
+    gunBody.position.set(0.0, -0.4, -2.0);
+    // Add parts to the gun group
+    gun.add(gunBarrel);
+    gun.add(gunBody);
+    // Position the gun group to the right and slightly below the camera to simulate holding it.
+    gun.position.set(1.2, -1.3, -1.5);
+    // Attach the gun to the pitchObject so it moves with the player's view.
+    pitchObject.add(gun);
+}
+
+// Spawn a decorative object such as a rock or crate.  These props are purely aesthetic and
+// randomly distributed across the ground to make the environment feel more lived‑in.
+function spawnDecoration() {
+    const size = 5 + Math.random() * 5;
+    let geometry;
+    if (Math.random() < 0.5) {
+        geometry = new THREE.BoxGeometry(size, size, size);
+    } else {
+        geometry = new THREE.SphereGeometry(size / 2, 8, 8);
+    }
+    const material = new THREE.MeshLambertMaterial({ color: randomColor() });
+    const mesh = new THREE.Mesh(geometry, material);
+    const area = worldSize / 2 - 30;
+    mesh.position.set((Math.random() * 2 - 1) * area, size / 2 + 1, (Math.random() * 2 - 1) * area);
+    scene.add(mesh);
+    decorations.push(mesh);
+}
+
+// Toggle the zoom state when the player right‑clicks.  Switching between normal and zoomed
+// field‑of‑view simulates aiming down sights.  Crosshair opacity is reduced while zoomed.
+function toggleZoom() {
+    isZoomed = !isZoomed;
+    camera.fov = isZoomed ? zoomFov : normalFov;
+    camera.updateProjectionMatrix();
+    const crosshairElem = document.getElementById('crosshair');
+    if (crosshairElem) {
+        // Change opacity and size of crosshair while zoomed for a sniping effect
+        crosshairElem.style.opacity = isZoomed ? '0.3' : '1.0';
+        // Preserve the translation that centers the crosshair and add a scale factor
+        crosshairElem.style.transform = isZoomed ? 'translate(-50%, -50%) scale(0.6)' : 'translate(-50%, -50%) scale(1)';
+    }
+}
+
 function updateScoreboard() {
     if (scoreboard) {
         scoreboard.textContent = `得分: ${score}`;
@@ -384,6 +476,11 @@ function onKeyDown(event) {
             }
             canJump = false;
             break;
+        case 'ShiftLeft':
+        case 'ShiftRight':
+            // Holding shift increases movement speed (running)
+            runMultiplier = 1.8;
+            break;
     }
 }
 
@@ -404,6 +501,11 @@ function onKeyUp(event) {
         case 'ArrowRight':
         case 'KeyD':
             moveRight = false;
+            break;
+        case 'ShiftLeft':
+        case 'ShiftRight':
+            // Release running key resets movement speed
+            runMultiplier = 1;
             break;
     }
 }
@@ -470,8 +572,8 @@ function animate() {
         direction.z = Number(moveForward) - Number(moveBackward);
         direction.x = Number(moveRight) - Number(moveLeft);
         direction.normalize();
-        if (moveForward || moveBackward) velocity.z += direction.z * 400.0 * delta;
-        if (moveLeft || moveRight) velocity.x -= direction.x * 400.0 * delta;
+        if (moveForward || moveBackward) velocity.z += direction.z * 400.0 * delta * runMultiplier;
+        if (moveLeft || moveRight) velocity.x -= direction.x * 400.0 * delta * runMultiplier;
         // Translate player
         yawObject.translateX(-velocity.x * delta);
         yawObject.translateZ(-velocity.z * delta);
@@ -627,7 +729,26 @@ function animate() {
             }
         }
         prevTime = time;
+        // Update weapon bobbing when the player is moving. This gives a subtle sway to the gun to simulate walking.
+        if (gun) {
+            const moving = moveForward || moveBackward || moveLeft || moveRight;
+            // Increase bobbing timer when moving, otherwise reset it to zero.
+            if (moving) {
+                bobbingTime += delta * 8.0;
+            } else {
+                bobbingTime = 0;
+            }
+            // Base offset for the gun relative to the camera
+            const baseX = 1.2;
+            const baseY = -1.3;
+            const baseZ = -1.5;
+            // Compute bobbing offsets using sine waves for horizontal and vertical sway
+            const horizOffset = Math.sin(bobbingTime * 2.0) * 0.2;
+            const vertOffset = Math.abs(Math.sin(bobbingTime)) * 0.3;
+            gun.position.set(baseX + horizOffset, baseY - vertOffset, baseZ);
+        }
     }
+    // Render the scene after updates
     renderer.render(scene, camera);
 }
 
