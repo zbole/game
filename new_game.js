@@ -1003,9 +1003,10 @@ function animate() {
                 bobbingTime = 0;
             }
             // Base offset for the gun relative to the camera
-            const baseX = 1.2;
-            const baseY = -1.3;
-            const baseZ = -1.5;
+            // Match these values to the initial positioning set in createGun()
+            const baseX = 1.3;
+            const baseY = -1.5;
+            const baseZ = -1.7;
             // Compute bobbing offsets using sine waves for horizontal and vertical sway
             const horizOffset = Math.sin(bobbingTime * 2.0) * 0.2;
             const vertOffset = Math.abs(Math.sin(bobbingTime)) * 0.3;
