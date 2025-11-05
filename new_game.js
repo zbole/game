@@ -30,6 +30,25 @@ const zoomFov = 35;
 // Running multiplier (hold Shift to run) and bobbing timer for subtle weapon sway while moving.
 let runMultiplier = 1;
 let bobbingTime = 0;
+// Variables for movement mechanics and action cooldowns
+// Allows the player to perform a double jump.  jumpCount tracks the current number of jumps
+// executed without touching the ground, and maxJumps sets the limit (two jumps total).
+let jumpCount = 0;
+const maxJumps = 2;
+// Indicates whether the player is crouching.  When crouched the player moves slower and
+// the camera height is lowered.
+let isCrouching = false;
+// Tracks the timestamp of the last dash action and defines cooldown and distance for dashes.
+let lastDashTime = 0;
+const dashCooldown = 0.5; // seconds
+const dashDistance = 50; // units to dash
+// Track the number of jumps made since last touching the ground to allow double jump
+let jumpCount = 0;
+// Track whether the player is crouching and adjust height/speed accordingly
+let isCrouching = false;
+// Variables to support dash mechanics on additional key presses
+let lastDashTime = 0;
+const dashCooldown = 1000; // milliseconds between dashes
 // Multiplier for projectile speed and the number of boosted shots remaining. When shotsBoosted > 0
 // each new projectile's speed will be multiplied by projectileSpeedMultiplier and
 // shotsBoosted will decrement after each shot.
@@ -382,23 +401,34 @@ function spawnCloud() {
 function createGun() {
     // Create a group for the gun so we can move it as a whole relative to the camera.
     gun = new THREE.Group();
-    // Barrel of the gun: a horizontal cylinder that points forward along -Z when rotated on the X axis.
-    const barrelGeo = new THREE.CylinderGeometry(0.5, 0.5, 8, 8);
-    const barrelMat = new THREE.MeshPhongMaterial({ color: 0x333333 });
-    gunBarrel = new THREE.Mesh(barrelGeo, barrelMat);
-    // By default the cylinder's axis is Y; rotate about X so it points along Z.
+    // Define colours for different parts of the weapon to improve its appearance
+    const darkMetal = new THREE.MeshPhongMaterial({ color: 0x333333 });
+    const midMetal = new THREE.MeshPhongMaterial({ color: 0x444444 });
+    const lightMetal = new THREE.MeshPhongMaterial({ color: 0x666666 });
+    // Barrel: a narrower cylinder to represent the gun's barrel
+    const barrelGeo = new THREE.CylinderGeometry(0.4, 0.4, 7.0, 12);
+    gunBarrel = new THREE.Mesh(barrelGeo, darkMetal);
     gunBarrel.rotation.x = Math.PI / 2;
-    // Position the barrel relative to the gun group
-    gunBarrel.position.set(0.0, 0.0, -4.5);
-    // Body/stock of the gun: a rectangular prism slightly behind the barrel
-    const bodyGeo = new THREE.BoxGeometry(1.8, 1.2, 3.5);
-    const bodyMat = new THREE.MeshPhongMaterial({ color: 0x222222 });
-    gunBody = new THREE.Mesh(bodyGeo, bodyMat);
-    gunBody.position.set(0.0, -0.4, -2.0);
-    // Add parts to the gun group
+    gunBarrel.position.set(0, 0.1, -3.8);
     gun.add(gunBarrel);
-    gun.add(gunBody);
-    // Position the gun group to the right and slightly below the camera to simulate holding it.
+    // Slide: a rectangular box sitting on top of the barrel
+    const slideGeo = new THREE.BoxGeometry(1.2, 0.4, 5.0);
+    const slide = new THREE.Mesh(slideGeo, midMetal);
+    slide.position.set(0, 0.5, -3.5);
+    gun.add(slide);
+    // Grip/handle: a slanted box for the player to hold
+    const gripGeo = new THREE.BoxGeometry(0.8, 1.8, 1.2);
+    const grip = new THREE.Mesh(gripGeo, lightMetal);
+    grip.position.set(0.3, -1.0, 1.5);
+    // Slightly tilt the grip backwards for ergonomics
+    grip.rotation.x = -0.5;
+    gun.add(grip);
+    // Sight: a small cube near the muzzle to act as a front sight
+    const sightGeo = new THREE.BoxGeometry(0.3, 0.3, 0.3);
+    const sight = new THREE.Mesh(sightGeo, darkMetal);
+    sight.position.set(0, 0.8, -6.0);
+    gun.add(sight);
+    // Position the entire gun group relative to the camera for a natural holding position
     gun.position.set(1.2, -1.3, -1.5);
     // Attach the gun to the pitchObject so it moves with the player's view.
     pitchObject.add(gun);
@@ -437,6 +467,38 @@ function toggleZoom() {
     }
 }
 
+// Perform a quick dash forward in the direction the player is facing.  Uses a cooldown to
+// prevent spamming.  This function ignores vertical direction so the player only dashes along the ground.
+function dash() {
+    const now = performance.now();
+    if (now - lastDashTime < dashCooldown) return;
+    lastDashTime = now;
+    const dir = new THREE.Vector3();
+    // Use the camera's world direction for movement
+    camera.getWorldDirection(dir);
+    dir.y = 0;
+    dir.normalize();
+    const distance = 40;
+    yawObject.position.addScaledVector(dir, distance);
+}
+
+// Perform a quick dash to the player's left.  This is computed using a cross product
+// with the up vector to find the left direction relative to the camera.
+function dashLeft() {
+    const now = performance.now();
+    if (now - lastDashTime < dashCooldown) return;
+    lastDashTime = now;
+    const forward = new THREE.Vector3();
+    camera.getWorldDirection(forward);
+    forward.y = 0;
+    forward.normalize();
+    const left = new THREE.Vector3();
+    // left = up cross forward
+    left.crossVectors(new THREE.Vector3(0, 1, 0), forward).normalize();
+    const distance = 40;
+    yawObject.position.addScaledVector(left, distance);
+}
+
 function updateScoreboard() {
     if (scoreboard) {
         scoreboard.textContent = `得分: ${score}`;
@@ -471,15 +533,39 @@ function onKeyDown(event) {
             moveRight = true;
             break;
         case 'Space':
-            if (canJump) {
+            // Allow up to two jumps (double jump) before touching the ground again
+            if (jumpCount < 2) {
                 velocity.y += 350;
+                jumpCount++;
             }
-            canJump = false;
             break;
         case 'ShiftLeft':
         case 'ShiftRight':
             // Holding shift increases movement speed (running)
             runMultiplier = 1.8;
+            break;
+        case 'ControlLeft':
+        case 'ControlRight':
+            // Crouch: lower the player's height and reduce speed
+            if (!isCrouching) {
+                isCrouching = true;
+                // lower player height
+                yawObject.position.y -= 3;
+                // slow down movement slightly when crouched
+                runMultiplier *= 0.6;
+            }
+            break;
+        case 'KeyE':
+            // Dash forward when pressing E
+            dash();
+            break;
+        case 'KeyQ':
+            // Dash left when pressing Q
+            dashLeft();
+            break;
+        case 'KeyR':
+            // Spawn an extra star as an interactive element
+            spawnStar();
             break;
     }
 }
@@ -506,6 +592,17 @@ function onKeyUp(event) {
         case 'ShiftRight':
             // Release running key resets movement speed
             runMultiplier = 1;
+            break;
+        case 'ControlLeft':
+        case 'ControlRight':
+            // Stand up when crouch key is released
+            if (isCrouching) {
+                isCrouching = false;
+                // raise player height
+                yawObject.position.y += 3;
+                // restore speed multiplier if not running
+                runMultiplier = 1;
+            }
             break;
     }
 }
@@ -582,6 +679,8 @@ function animate() {
         if (yawObject.position.y < 10) {
             velocity.y = 0;
             yawObject.position.y = 10;
+            // Reset jump count when landing to allow double jumps again
+            jumpCount = 0;
             canJump = true;
         }
         // Move and rotate targets
