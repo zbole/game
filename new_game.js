@@ -29,6 +29,10 @@ const gunParts = [];
 let gunColorIndex = 0;
 // Palette of colours to cycle through when the player presses a key to change weapon appearance.
 const gunColorPalette = [0x333333, 0x444444, 0x555555, 0x888888, 0xff9933];
+
+// Crosshair colour palette and index.  Cycling crosshair colours on command adds a bit of customisation.
+const crosshairColors = ['#ffffff', '#ff0000', '#00ff00', '#00aaff', '#ffff00'];
+let crosshairColorIndex = 0;
 // Zoom state and parameters. Right‑click toggles aiming down sights by changing the camera FOV.
 let isZoomed = false;
 const normalFov = 75;
@@ -402,56 +406,73 @@ function spawnCloud() {
 function createGun() {
     // Create a group for the gun so we can move it as a whole relative to the camera.
     gun = new THREE.Group();
-    // Define colours for different parts of the weapon to improve its appearance
-    const darkMetal = new THREE.MeshPhongMaterial({ color: 0x333333 });
-    const midMetal = new THREE.MeshPhongMaterial({ color: 0x444444 });
-    const lightMetal = new THREE.MeshPhongMaterial({ color: 0x666666 });
-    // Barrel: a slightly larger cylinder to represent the gun's barrel
-    const barrelGeo = new THREE.CylinderGeometry(0.5, 0.5, 8.0, 16);
+    // Define materials for different parts of the weapon.  Dark metal for the main body,
+    // mid‑tone metal for the slide, grip material for the handle and magazine, and
+    // accent material for small details like rails and sights.
+    const darkMetal = new THREE.MeshPhongMaterial({ color: 0x222222 });
+    const midMetal  = new THREE.MeshPhongMaterial({ color: 0x444444 });
+    const gripMat   = new THREE.MeshPhongMaterial({ color: 0x2f2b2a });
+    const accentMat = new THREE.MeshPhongMaterial({ color: 0x666666 });
+    // Barrel: a cylindrical tube slightly narrower than the slide
+    const barrelGeo = new THREE.CylinderGeometry(0.45, 0.45, 8.0, 16);
     gunBarrel = new THREE.Mesh(barrelGeo, darkMetal);
     gunBarrel.rotation.x = Math.PI / 2;
-    gunBarrel.position.set(0, 0.1, -4.0);
+    gunBarrel.position.set(0, 0.25, -4.0);
     gun.add(gunBarrel);
     gunParts.push(gunBarrel);
-    // Slide: a rectangular box sitting on top of the barrel. Extended for a longer slide.
-    const slideGeo = new THREE.BoxGeometry(1.5, 0.5, 6.0);
+    // Slide: a longer, taller box sits over the barrel
+    const slideGeo = new THREE.BoxGeometry(1.8, 0.8, 6.5);
     const slide = new THREE.Mesh(slideGeo, midMetal);
-    slide.position.set(0, 0.6, -3.5);
+    slide.position.set(0, 0.8, -3.5);
     gun.add(slide);
     gunParts.push(slide);
-    // Grip/handle: a slanted box for the player to hold
-    const gripGeo = new THREE.BoxGeometry(1.0, 2.0, 1.4);
-    const grip = new THREE.Mesh(gripGeo, lightMetal);
-    grip.position.set(0.4, -1.1, 1.8);
-    // Slightly tilt the grip backwards for ergonomics
-    grip.rotation.x = -0.5;
+    // Top rail: a slim bar running along the top of the slide
+    const railGeo = new THREE.BoxGeometry(1.6, 0.15, 6.0);
+    const rail = new THREE.Mesh(railGeo, accentMat);
+    rail.position.set(0, 1.25, -3.5);
+    gun.add(rail);
+    gunParts.push(rail);
+    // Ejection port: a small rectangular opening on the slide
+    const ejectGeo = new THREE.BoxGeometry(0.8, 0.3, 0.4);
+    const ejection = new THREE.Mesh(ejectGeo, accentMat);
+    ejection.position.set(0.6, 0.7, -1.0);
+    gun.add(ejection);
+    gunParts.push(ejection);
+    // Rear sight: a small block at the back of the slide
+    const rearSightGeo = new THREE.BoxGeometry(0.6, 0.3, 0.4);
+    const rearSight = new THREE.Mesh(rearSightGeo, darkMetal);
+    rearSight.position.set(0, 1.4, -6.0);
+    gun.add(rearSight);
+    gunParts.push(rearSight);
+    // Grip/handle: a larger, more ergonomic box tilted back
+    const gripGeo = new THREE.BoxGeometry(1.0, 2.8, 1.4);
+    const grip = new THREE.Mesh(gripGeo, gripMat);
+    grip.position.set(0.5, -1.3, 2.0);
+    grip.rotation.x = -0.6;
     gun.add(grip);
     gunParts.push(grip);
-
-    // Magazine: attach a box at the bottom of the grip to represent a magazine
-    const magGeo = new THREE.BoxGeometry(0.6, 1.6, 1.2);
-    const magazine = new THREE.Mesh(magGeo, lightMetal);
-    magazine.position.set(-0.2, -1.8, 1.8);
-    magazine.rotation.x = -0.5;
+    // Magazine: attaches below the grip
+    const magGeo = new THREE.BoxGeometry(0.7, 1.8, 1.2);
+    const magazine = new THREE.Mesh(magGeo, gripMat);
+    magazine.position.set(-0.1, -2.3, 2.0);
+    magazine.rotation.x = -0.6;
     gun.add(magazine);
     gunParts.push(magazine);
-    // Sight: a small cube near the muzzle to act as a front sight
-    const sightGeo = new THREE.BoxGeometry(0.4, 0.4, 0.4);
-    const sight = new THREE.Mesh(sightGeo, darkMetal);
-    sight.position.set(0, 0.9, -6.5);
-    gun.add(sight);
-    gunParts.push(sight);
-
-    // Trigger guard: a torus acting as a trigger guard below the slide
-    const triggerGeo = new THREE.TorusGeometry(0.35, 0.1, 8, 16);
+    // Front sight near the muzzle
+    const frontSightGeo = new THREE.BoxGeometry(0.4, 0.3, 0.4);
+    const frontSight = new THREE.Mesh(frontSightGeo, darkMetal);
+    frontSight.position.set(0, 1.05, -6.5);
+    gun.add(frontSight);
+    gunParts.push(frontSight);
+    // Trigger guard: torus acting as a guard around the trigger area
+    const triggerGeo = new THREE.TorusGeometry(0.4, 0.1, 8, 16);
     const triggerGuard = new THREE.Mesh(triggerGeo, darkMetal);
-    // Rotate to stand upright
     triggerGuard.rotation.set(Math.PI / 2, 0, 0);
-    triggerGuard.position.set(0.8, -0.3, 0.7);
+    triggerGuard.position.set(0.9, -0.4, 0.8);
     gun.add(triggerGuard);
     gunParts.push(triggerGuard);
-    // Position the entire gun group relative to the camera for a natural holding position
-    gun.position.set(1.2, -1.3, -1.5);
+    // Position the entire gun relative to the camera for a natural holding position
+    gun.position.set(1.3, -1.5, -1.7);
     // Attach the gun to the pitchObject so it moves with the player's view.
     pitchObject.add(gun);
 }
@@ -550,6 +571,44 @@ function dashBack() {
     yawObject.position.addScaledVector(dir, -dashDistance);
 }
 
+// Perform a quick vertical dash upwards.  This adds a vertical offset to the player's position, subject to dash cooldown.
+function dashUp() {
+    const now = performance.now();
+    if (now - lastDashTime < dashCooldown) return;
+    lastDashTime = now;
+    // Add vertical offset directly to the player position
+    yawObject.position.y += dashDistance;
+}
+
+// Shoot a slow‑moving, larger projectile (bomb) that deals area damage when hitting targets.
+function shootBomb() {
+    if (!isLocked) return;
+    const dir = new THREE.Vector3();
+    camera.getWorldDirection(dir);
+    // Create a larger sphere for the bomb
+    const bombGeom = new THREE.SphereGeometry(5, 12, 12);
+    const bombMat = new THREE.MeshPhongMaterial({ color: 0xff5500 });
+    const bomb = new THREE.Mesh(bombGeom, bombMat);
+    // Determine starting position slightly in front of the player
+    yawObject.updateMatrixWorld();
+    const startPos = new THREE.Vector3();
+    yawObject.getWorldPosition(startPos);
+    const offset = dir.clone().multiplyScalar(10);
+    bomb.position.copy(startPos).add(offset);
+    scene.add(bomb);
+    // Bomb travels more slowly than a standard projectile
+    const speed = 300 * projectileSpeedMultiplier;
+    const velVec = dir.clone().normalize().multiplyScalar(speed);
+    projectiles.push({ mesh: bomb, velocity: velVec });
+    // Handle boosted shots decrement if active
+    if (shotsBoosted > 0) {
+        shotsBoosted--;
+        if (shotsBoosted === 0) {
+            projectileSpeedMultiplier = 1;
+        }
+    }
+}
+
 // Cycle through different colour palettes for the gun. Each call applies a new colour to all gun parts.
 function cycleGunColor() {
     gunColorIndex = (gunColorIndex + 1) % gunColorPalette.length;
@@ -562,6 +621,14 @@ function cycleGunColor() {
             part.material.color.setHex(newColor);
         }
     });
+}
+
+// Cycle through crosshair colours.  Each call updates the colour of the on‑screen crosshair.
+function cycleCrosshairColor() {
+    const crosshairElem = document.getElementById('crosshair');
+    if (!crosshairElem) return;
+    crosshairColorIndex = (crosshairColorIndex + 1) % crosshairColors.length;
+    crosshairElem.style.color = crosshairColors[crosshairColorIndex];
 }
 
 function updateScoreboard() {
@@ -651,6 +718,18 @@ function onKeyDown(event) {
         case 'Digit1':
             // Cycle weapon colour palette
             cycleGunColor();
+            break;
+        case 'KeyC':
+            // Cycle through crosshair colours
+            cycleCrosshairColor();
+            break;
+        case 'KeyV':
+            // Vertical dash upward
+            dashUp();
+            break;
+        case 'KeyB':
+            // Launch a slow‑moving bomb projectile
+            shootBomb();
             break;
     }
 }
