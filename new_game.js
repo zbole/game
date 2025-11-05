@@ -23,6 +23,12 @@ const decorations = [];
 let gun;
 let gunBarrel;
 let gunBody;
+// Store gun parts to allow recoloring and customization on-the-fly.
+const gunParts = [];
+// Index into the gunColorPalette for cycling weapon colours.
+let gunColorIndex = 0;
+// Palette of colours to cycle through when the player presses a key to change weapon appearance.
+const gunColorPalette = [0x333333, 0x444444, 0x555555, 0x888888, 0xff9933];
 // Zoom state and parameters. Right‑click toggles aiming down sights by changing the camera FOV.
 let isZoomed = false;
 const normalFov = 75;
@@ -400,29 +406,50 @@ function createGun() {
     const darkMetal = new THREE.MeshPhongMaterial({ color: 0x333333 });
     const midMetal = new THREE.MeshPhongMaterial({ color: 0x444444 });
     const lightMetal = new THREE.MeshPhongMaterial({ color: 0x666666 });
-    // Barrel: a narrower cylinder to represent the gun's barrel
-    const barrelGeo = new THREE.CylinderGeometry(0.4, 0.4, 7.0, 12);
+    // Barrel: a slightly larger cylinder to represent the gun's barrel
+    const barrelGeo = new THREE.CylinderGeometry(0.5, 0.5, 8.0, 16);
     gunBarrel = new THREE.Mesh(barrelGeo, darkMetal);
     gunBarrel.rotation.x = Math.PI / 2;
-    gunBarrel.position.set(0, 0.1, -3.8);
+    gunBarrel.position.set(0, 0.1, -4.0);
     gun.add(gunBarrel);
-    // Slide: a rectangular box sitting on top of the barrel
-    const slideGeo = new THREE.BoxGeometry(1.2, 0.4, 5.0);
+    gunParts.push(gunBarrel);
+    // Slide: a rectangular box sitting on top of the barrel. Extended for a longer slide.
+    const slideGeo = new THREE.BoxGeometry(1.5, 0.5, 6.0);
     const slide = new THREE.Mesh(slideGeo, midMetal);
-    slide.position.set(0, 0.5, -3.5);
+    slide.position.set(0, 0.6, -3.5);
     gun.add(slide);
+    gunParts.push(slide);
     // Grip/handle: a slanted box for the player to hold
-    const gripGeo = new THREE.BoxGeometry(0.8, 1.8, 1.2);
+    const gripGeo = new THREE.BoxGeometry(1.0, 2.0, 1.4);
     const grip = new THREE.Mesh(gripGeo, lightMetal);
-    grip.position.set(0.3, -1.0, 1.5);
+    grip.position.set(0.4, -1.1, 1.8);
     // Slightly tilt the grip backwards for ergonomics
     grip.rotation.x = -0.5;
     gun.add(grip);
+    gunParts.push(grip);
+
+    // Magazine: attach a box at the bottom of the grip to represent a magazine
+    const magGeo = new THREE.BoxGeometry(0.6, 1.6, 1.2);
+    const magazine = new THREE.Mesh(magGeo, lightMetal);
+    magazine.position.set(-0.2, -1.8, 1.8);
+    magazine.rotation.x = -0.5;
+    gun.add(magazine);
+    gunParts.push(magazine);
     // Sight: a small cube near the muzzle to act as a front sight
-    const sightGeo = new THREE.BoxGeometry(0.3, 0.3, 0.3);
+    const sightGeo = new THREE.BoxGeometry(0.4, 0.4, 0.4);
     const sight = new THREE.Mesh(sightGeo, darkMetal);
-    sight.position.set(0, 0.8, -6.0);
+    sight.position.set(0, 0.9, -6.5);
     gun.add(sight);
+    gunParts.push(sight);
+
+    // Trigger guard: a torus acting as a trigger guard below the slide
+    const triggerGeo = new THREE.TorusGeometry(0.35, 0.1, 8, 16);
+    const triggerGuard = new THREE.Mesh(triggerGeo, darkMetal);
+    // Rotate to stand upright
+    triggerGuard.rotation.set(Math.PI / 2, 0, 0);
+    triggerGuard.position.set(0.8, -0.3, 0.7);
+    gun.add(triggerGuard);
+    gunParts.push(triggerGuard);
     // Position the entire gun group relative to the camera for a natural holding position
     gun.position.set(1.2, -1.3, -1.5);
     // Attach the gun to the pitchObject so it moves with the player's view.
@@ -494,6 +521,49 @@ function dashLeft() {
     yawObject.position.addScaledVector(left, dashDistance);
 }
 
+// Perform a quick dash to the player's right.  Uses cross product to find the right direction relative to the camera.
+function dashRight() {
+    const now = performance.now();
+    if (now - lastDashTime < dashCooldown) return;
+    lastDashTime = now;
+    const forward = new THREE.Vector3();
+    camera.getWorldDirection(forward);
+    forward.y = 0;
+    forward.normalize();
+    const right = new THREE.Vector3();
+    // right = forward cross up
+    right.crossVectors(forward, new THREE.Vector3(0, 1, 0)).normalize();
+    // Move the player right by the configured dash distance
+    yawObject.position.addScaledVector(right, dashDistance);
+}
+
+// Perform a quick dash backwards.  Moves the player opposite of the facing direction.
+function dashBack() {
+    const now = performance.now();
+    if (now - lastDashTime < dashCooldown) return;
+    lastDashTime = now;
+    const dir = new THREE.Vector3();
+    camera.getWorldDirection(dir);
+    dir.y = 0;
+    dir.normalize();
+    // Move backwards by subtracting the dash distance
+    yawObject.position.addScaledVector(dir, -dashDistance);
+}
+
+// Cycle through different colour palettes for the gun. Each call applies a new colour to all gun parts.
+function cycleGunColor() {
+    gunColorIndex = (gunColorIndex + 1) % gunColorPalette.length;
+    const newColor = gunColorPalette[gunColorIndex];
+    gunParts.forEach(part => {
+        // If material is an array (rare), update each; otherwise update the single material
+        if (Array.isArray(part.material)) {
+            part.material.forEach(mat => mat.color.setHex(newColor));
+        } else {
+            part.material.color.setHex(newColor);
+        }
+    });
+}
+
 function updateScoreboard() {
     if (scoreboard) {
         scoreboard.textContent = `得分: ${score}`;
@@ -561,6 +631,26 @@ function onKeyDown(event) {
         case 'KeyR':
             // Spawn an extra star as an interactive element
             spawnStar();
+            break;
+        case 'KeyF':
+            // Spawn a power-up when pressing F
+            spawnPowerUp();
+            break;
+        case 'KeyG':
+            // Spawn a decorative object (rock/crate) when pressing G
+            spawnDecoration();
+            break;
+        case 'KeyZ':
+            // Dash right when pressing Z
+            dashRight();
+            break;
+        case 'KeyX':
+            // Dash backward when pressing X
+            dashBack();
+            break;
+        case 'Digit1':
+            // Cycle weapon colour palette
+            cycleGunColor();
             break;
     }
 }
