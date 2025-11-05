@@ -38,17 +38,12 @@ const maxJumps = 2;
 // Indicates whether the player is crouching.  When crouched the player moves slower and
 // the camera height is lowered.
 let isCrouching = false;
-// Tracks the timestamp of the last dash action and defines cooldown and distance for dashes.
+// Tracks the timestamp of the last dash action and defines cooldown and distance for dashes (in milliseconds).
 let lastDashTime = 0;
-const dashCooldown = 0.5; // seconds
+const dashCooldown = 500; // milliseconds
 const dashDistance = 50; // units to dash
-// Track the number of jumps made since last touching the ground to allow double jump
-let jumpCount = 0;
-// Track whether the player is crouching and adjust height/speed accordingly
-let isCrouching = false;
-// Variables to support dash mechanics on additional key presses
-let lastDashTime = 0;
-const dashCooldown = 1000; // milliseconds between dashes
+// Note: duplicate declarations of jumpCount, isCrouching, lastDashTime and dashCooldown below were
+// removed when merging features.  See the primary declarations above for definitions.
 // Multiplier for projectile speed and the number of boosted shots remaining. When shotsBoosted > 0
 // each new projectile's speed will be multiplied by projectileSpeedMultiplier and
 // shotsBoosted will decrement after each shot.
@@ -478,8 +473,8 @@ function dash() {
     camera.getWorldDirection(dir);
     dir.y = 0;
     dir.normalize();
-    const distance = 40;
-    yawObject.position.addScaledVector(dir, distance);
+    // Move the player forward by the configured dash distance
+    yawObject.position.addScaledVector(dir, dashDistance);
 }
 
 // Perform a quick dash to the player's left.  This is computed using a cross product
@@ -495,8 +490,8 @@ function dashLeft() {
     const left = new THREE.Vector3();
     // left = up cross forward
     left.crossVectors(new THREE.Vector3(0, 1, 0), forward).normalize();
-    const distance = 40;
-    yawObject.position.addScaledVector(left, distance);
+    // Move the player left by the configured dash distance
+    yawObject.position.addScaledVector(left, dashDistance);
 }
 
 function updateScoreboard() {
@@ -675,11 +670,12 @@ function animate() {
         yawObject.translateX(-velocity.x * delta);
         yawObject.translateZ(-velocity.z * delta);
         yawObject.position.y += velocity.y * delta;
-        // Keep player above ground
-        if (yawObject.position.y < 10) {
+        // Keep player above the ground.  Adjust the effective ground height when crouching so the
+        // player remains lower.  Reset jump count upon landing to enable double jumps again.
+        const groundHeight = isCrouching ? 7 : 10;
+        if (yawObject.position.y < groundHeight) {
             velocity.y = 0;
-            yawObject.position.y = 10;
-            // Reset jump count when landing to allow double jumps again
+            yawObject.position.y = groundHeight;
             jumpCount = 0;
             canJump = true;
         }
